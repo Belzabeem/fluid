@@ -1,15 +1,18 @@
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { Config } from "../config";
+import { WebhookService } from "../services/webhook";
 import { TransactionRecord, transactionStore } from "./transactionStore";
 
 export class LedgerMonitor {
   private server: StellarSdk.Horizon.Server;
   private config: Config;
+  private webhookService: WebhookService;
   private pollInterval: NodeJS.Timeout | null = null;
   private readonly POLL_INTERVAL_MS = 30000; // 30 seconds to respect Horizon rate limits
 
-  constructor(config: Config) {
+  constructor(config: Config, webhookService: WebhookService) {
     this.config = config;
+    this.webhookService = webhookService;
     if (!config.horizonUrl) {
       throw new Error("Horizon URL is required for ledger monitoring");
     }
@@ -90,11 +93,13 @@ export class LedgerMonitor {
           `[LedgerMonitor] Transaction ${transaction.hash} was SUCCESSFUL`,
         );
         transactionStore.updateTransactionStatus(transaction.hash, "success");
+        await this.webhookService.dispatch(transaction.tenantId, transaction.hash, "success");
       } else {
         console.log(
           `[LedgerMonitor] Transaction ${transaction.hash} was UNSUCCESSFUL`,
         );
         transactionStore.updateTransactionStatus(transaction.hash, "failed");
+        await this.webhookService.dispatch(transaction.tenantId, transaction.hash, "failed");
       }
     } catch (error: any) {
       // Handle 404 - transaction not found (might be dropped from mempool)
@@ -103,6 +108,7 @@ export class LedgerMonitor {
           `[LedgerMonitor] Transaction ${transaction.hash} not found on ledger (404) - marking as failed`,
         );
         transactionStore.updateTransactionStatus(transaction.hash, "failed");
+        await this.webhookService.dispatch(transaction.tenantId, transaction.hash, "failed");
       } else {
         console.error(
           `[LedgerMonitor] Error checking transaction ${transaction.hash}:`,
@@ -117,6 +123,7 @@ export class LedgerMonitor {
             `[LedgerMonitor] Test/invalid transaction ${transaction.hash} - marking as failed`,
           );
           transactionStore.updateTransactionStatus(transaction.hash, "failed");
+          await this.webhookService.dispatch(transaction.tenantId, transaction.hash, "failed");
         }
       }
     }
@@ -138,7 +145,7 @@ export function initializeLedgerMonitor(config: Config): LedgerMonitor {
     ledgerMonitor.stop();
   }
 
-  ledgerMonitor = new LedgerMonitor(config);
+  ledgerMonitor = new LedgerMonitor(config, new WebhookService());
   return ledgerMonitor;
 }
 

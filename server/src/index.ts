@@ -4,6 +4,7 @@ import express, { NextFunction, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import { loadConfig } from "./config";
 import { feeBumpHandler } from "./handlers/feeBump";
+import { updateWebhookHandler } from "./handlers/tenantWebhook";
 import { apiKeyMiddleware } from "./middleware/apiKeys";
 import { apiKeyRateLimit } from "./middleware/rateLimit";
 import { initializeLedgerMonitor } from "./workers/ledgerMonitor";
@@ -80,9 +81,11 @@ app.post(
   apiKeyRateLimit,
   limiter,
   (req: Request, res: Response, next: NextFunction) => {
-    feeBumpHandler(req, res, config, next);
+    feeBumpHandler(req, res, next, config);
   },
 );
+
+app.patch("/tenant/webhook", apiKeyMiddleware, updateWebhookHandler);
 
 // Test endpoint to manually add a pending transaction
 app.post("/test/add-transaction", (req: Request, res: Response) => {
@@ -90,7 +93,7 @@ app.post("/test/add-transaction", (req: Request, res: Response) => {
   if (!hash) {
     return res.status(400).json({ error: "Transaction hash is required" });
   }
-  transactionStore.addTransaction(hash, status);
+  transactionStore.addTransaction(hash, "test", status);
   res.json({ message: `Transaction ${hash} added with status ${status}` });
 });
 
